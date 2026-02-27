@@ -75,6 +75,32 @@ This document summarizes the issues found and fixed during the local stabilizati
 - `npm run build` -> success.
 - Local dev server startup -> confirmed listening on `127.0.0.1:4173`.
 
+## 8) Local auth transport hardening (proxy/direct/auto)
+
+- **Error**: Browser-only intermittent `500` on `POST /supabase/auth/v1/token`.
+- **Why it happens**: Request interception/proxy interference can affect browser calls even when Supabase is healthy.
+- **Fix applied**:
+  - Added deterministic auth transport mode via `VITE_SUPABASE_TRANSPORT`.
+  - Modes:
+    - `auto` (dev default): proxy first, single retry via direct URL on retryable errors.
+    - `proxy`: force local Vite proxy.
+    - `direct`: bypass local proxy and call Supabase directly.
+  - Production hardening:
+    - Production always uses direct transport.
+    - Production now requires valid `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY` (fails fast if missing).
+    - OAuth flow uses PKCE for safer browser auth handling.
+  - Added developer diagnostics in `src/lib/authDiagnostics.ts` to compare proxy and direct auth settings endpoints.
+  - Added dev-only proxy upstream logging in `vite.config.ts`.
+- **Risk if not fixed**: Intermittent local-only login failures with unclear root cause.
+
+### Quick troubleshooting for local auth
+
+1. Test in Incognito (extensions off).
+2. Disable request-modifying extensions (privacy/adblock/dev interceptors).
+3. Force direct mode:
+   - `VITE_SUPABASE_TRANSPORT="direct"`
+4. Restart dev server after env changes.
+
 ## Notes
 
 - Edge function end-to-end execution in this environment is limited by missing local Supabase tooling (`supabase` CLI / `deno`).

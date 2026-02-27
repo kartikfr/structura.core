@@ -1,6 +1,15 @@
 import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
-import { User, Session } from '@supabase/supabase-js';
-import { resolvedSupabaseUrl, supabase } from '@/integrations/supabase/client';
+import { User, Session, SupabaseClient } from '@supabase/supabase-js';
+import {
+  canFallbackToDirectAuth,
+  directSupabase,
+  resolvedDirectSupabaseUrl,
+  resolvedSupabaseUrl,
+  supabase,
+  supabaseTransportConfigured,
+  supabaseTransportEffective,
+} from '@/integrations/supabase/client';
+import { runAuthDiagnostics } from '@/lib/authDiagnostics';
 
 interface Profile {
   id: string;
@@ -12,6 +21,14 @@ interface Profile {
   created_at: string;
   updated_at: string;
 }
+
+const AUTH_ERROR_MESSAGES = {
+  invalidCredentials: 'Invalid email or password.',
+  emailNotConfirmed: 'Email not verified. Please confirm your email before signing in.',
+  accountExists: 'This email is already registered. Please sign in instead.',
+  networkOrProxyFailure: 'Local network/proxy interference detected. Retried direct path.',
+  serviceUnavailable: 'Auth service temporarily unavailable.',
+} as const;
 
 interface AuthContextType {
   user: User | null;
@@ -31,6 +48,103 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 const FREE_ANALYSES_LIMIT = 5;
+
+const toError = (error: unknown): Error => {
+  if (error instanceof Error) return error;
+  return new Error(String(error ?? 'Unknown authentication error'));
+};
+
+const getErrorStatus = (error: unknown): number | null => {
+  if (typeof error !== 'object' || error === null) return null;
+  if (!('status' in error)) return null;
+  const value = (error as { status?: unknown }).status;
+  return typeof value === 'number' ? value : null;
+};
+
+const isInvalidCredentialsError = (error: unknown): boolean => {
+  const message = toError(error).message.toLowerCase();
+  return message.includes('invalid login credentials');
+};
+
+const isEmailNotConfirmedError = (error: unknown): boolean => {
+  const message = toError(error).message.toLowerCase();
+  return message.includes('email not confirmed') || message.includes('email not verified');
+};
+
+const isAccountExistsError = (error: unknown): boolean => {
+  const message = toError(error).message.toLowerCase();
+  return message.includes('already registered') || message.includes('already been registered');
+};
+
+const isNetworkOrProxyFailure = (error: unknown): boolean => {
+  const message = toError(error).message.toLowerCase();
+  return message.includes('failed to fetch') || message.includes('networkerror') || message.includes('fetch failed');
+};
+
+const isRetryableAuthFailure = (error: unknown): boolean => {
+  const status = getErrorStatus(error);
+  return isNetworkOrProxyFailure(error) || (status !== null && status >= 500);
+};
+
+const classifyAuthError = (error: unknown, fallbackAttempted: boolean): Error => {
+  if (isInvalidCredentialsError(error)) {
+    return new Error(AUTH_ERROR_MESSAGES.invalidCredentials);
+  }
+  if (isEmailNotConfirmedError(error)) {
+    return new Error(AUTH_ERROR_MESSAGES.emailNotConfirmed);
+  }
+  if (isAccountExistsError(error)) {
+    return new Error(AUTH_ERROR_MESSAGES.accountExists);
+  }
+
+  const status = getErrorStatus(error);
+  if (fallbackAttempted && isNetworkOrProxyFailure(error)) {
+    return new Error(AUTH_ERROR_MESSAGES.networkOrProxyFailure);
+  }
+  if (isNetworkOrProxyFailure(error)) {
+    return new Error(AUTH_ERROR_MESSAGES.networkOrProxyFailure);
+  }
+  if (status !== null && status >= 500) {
+    return new Error(AUTH_ERROR_MESSAGES.serviceUnavailable);
+  }
+
+  return toError(error);
+};
+
+const normalizeOAuthUrl = (url: string, baseUrl: string): string => {
+  if (url.startsWith('/')) {
+    return `${baseUrl.replace(/\/$/, '')}${url}`;
+  }
+  return url;
+};
+
+const requestGoogleOAuthUrl = async (
+  client: SupabaseClient,
+  baseUrl: string,
+  redirectTo: string
+): Promise<{ url: string | null; error: Error | null }> => {
+  const { data, error } = await client.auth.signInWithOAuth({
+    provider: 'google',
+    options: {
+      redirectTo,
+      skipBrowserRedirect: true,
+    }
+  });
+
+  if (error) {
+    return { url: null, error: toError(error) };
+  }
+  if (!data?.url) {
+    return { url: null, error: new Error(AUTH_ERROR_MESSAGES.serviceUnavailable) };
+  }
+
+  const finalUrl = normalizeOAuthUrl(data.url, baseUrl);
+  if (!/^https?:\/\//i.test(finalUrl)) {
+    return { url: null, error: new Error(AUTH_ERROR_MESSAGES.serviceUnavailable) };
+  }
+
+  return { url: finalUrl, error: null };
+};
 
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [user, setUser] = useState<User | null>(null);
@@ -65,9 +179,19 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   };
 
   useEffect(() => {
+    if (import.meta.env.DEV) {
+      void runAuthDiagnostics().then((diag) => {
+        console.info('[auth-diagnostics]', {
+          transportConfigured: supabaseTransportConfigured,
+          transportEffective: supabaseTransportEffective,
+          ...diag,
+        });
+      });
+    }
+
     // Set up auth state listener FIRST
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      (event, session) => {
+      (_event, session) => {
         setSession(session);
         setUser(session?.user ?? null);
 
@@ -103,7 +227,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const signUp = async (email: string, password: string) => {
     const redirectUrl = `${window.location.origin}/lens`;
 
-    const { error } = await supabase.auth.signUp({
+    const { error: primaryError } = await supabase.auth.signUp({
       email,
       password,
       options: {
@@ -111,43 +235,91 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       }
     });
 
-    return { error: error as Error | null };
+    if (!primaryError) {
+      return { error: null };
+    }
+
+    if (canFallbackToDirectAuth && isRetryableAuthFailure(primaryError)) {
+      if (import.meta.env.DEV) {
+        void runAuthDiagnostics().then((diag) => {
+          console.info('[auth-diagnostics][signUp-fallback]', diag);
+        });
+      }
+
+      const { error: directError } = await directSupabase.auth.signUp({
+        email,
+        password,
+        options: {
+          emailRedirectTo: redirectUrl
+        }
+      });
+
+      if (!directError) {
+        return { error: null };
+      }
+      return { error: classifyAuthError(directError, true) };
+    }
+
+    return { error: classifyAuthError(primaryError, false) };
   };
 
   const signIn = async (email: string, password: string) => {
-    const { error } = await supabase.auth.signInWithPassword({
+    const { error: primaryError } = await supabase.auth.signInWithPassword({
       email,
       password,
     });
 
-    return { error: error as Error | null };
+    if (!primaryError) {
+      return { error: null };
+    }
+
+    if (canFallbackToDirectAuth && isRetryableAuthFailure(primaryError)) {
+      if (import.meta.env.DEV) {
+        void runAuthDiagnostics().then((diag) => {
+          console.info('[auth-diagnostics][signIn-fallback]', diag);
+        });
+      }
+
+      const { error: directError } = await directSupabase.auth.signInWithPassword({
+        email,
+        password,
+      });
+
+      if (!directError) {
+        return { error: null };
+      }
+      return { error: classifyAuthError(directError, true) };
+    }
+
+    return { error: classifyAuthError(primaryError, false) };
   };
 
   const signInWithGoogle = async () => {
     const redirectUrl = `${window.location.origin}/lens`;
 
-    const { data, error } = await supabase.auth.signInWithOAuth({
-      provider: 'google',
-      options: {
-        redirectTo: redirectUrl,
-        skipBrowserRedirect: true,
-      }
-    });
-
-    if (!error) {
-      const oauthUrl = data?.url;
-      if (!oauthUrl) {
-        return { error: new Error('Google OAuth URL not returned') };
-      }
-
-      const finalUrl = oauthUrl.startsWith('/')
-        ? `${resolvedSupabaseUrl}${oauthUrl}`
-        : oauthUrl;
-
-      window.location.assign(finalUrl);
+    const primary = await requestGoogleOAuthUrl(supabase, resolvedSupabaseUrl, redirectUrl);
+    if (!primary.error && primary.url) {
+      window.location.assign(primary.url);
+      return { error: null };
     }
 
-    return { error: error as Error | null };
+    if (canFallbackToDirectAuth && primary.error && isRetryableAuthFailure(primary.error)) {
+      if (import.meta.env.DEV) {
+        void runAuthDiagnostics().then((diag) => {
+          console.info('[auth-diagnostics][oauth-fallback]', diag);
+        });
+      }
+
+      const fallback = await requestGoogleOAuthUrl(directSupabase, resolvedDirectSupabaseUrl, redirectUrl);
+      if (!fallback.error && fallback.url) {
+        window.location.assign(fallback.url);
+        return { error: null };
+      }
+
+      return { error: classifyAuthError(fallback.error ?? primary.error, true) };
+    }
+
+    return { error: classifyAuthError(primary.error, false) };
   };
 
   const signOut = async () => {

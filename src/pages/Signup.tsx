@@ -60,6 +60,14 @@ export const Signup = () => {
         toast.error('Account exists', {
           description: 'This email is already registered. Please login instead.',
         });
+      } else if (error.message.includes('Local network/proxy interference')) {
+        toast.error('Connection issue detected', {
+          description: error.message,
+        });
+      } else if (error.message.includes('Auth service temporarily unavailable')) {
+        toast.error('Auth service unavailable', {
+          description: error.message,
+        });
       } else {
         toast.error('Signup failed', {
           description: error.message,
@@ -82,9 +90,19 @@ export const Signup = () => {
     const { error } = await signInWithGoogle();
 
     if (error) {
-      toast.error('Google sign-in failed', {
-        description: error.message,
-      });
+      if (error.message.includes('Local network/proxy interference')) {
+        toast.error('Connection issue detected', {
+          description: error.message,
+        });
+      } else if (error.message.includes('Auth service temporarily unavailable')) {
+        toast.error('Auth service unavailable', {
+          description: error.message,
+        });
+      } else {
+        toast.error('Google sign-in failed', {
+          description: error.message,
+        });
+      }
       setIsGoogleLoading(false);
     }
   };

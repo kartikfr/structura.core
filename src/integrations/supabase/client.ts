@@ -2,8 +2,10 @@
 import { createClient } from '@supabase/supabase-js';
 import type { Database } from './types';
 
-const FALLBACK_SUPABASE_URL = "https://ulbmusodwyjjicnginat.supabase.co";
-const FALLBACK_SUPABASE_PUBLISHABLE_KEY =
+export type SupabaseTransportMode = 'proxy' | 'direct' | 'auto';
+
+const DEV_FALLBACK_SUPABASE_URL = "https://ulbmusodwyjjicnginat.supabase.co";
+const DEV_FALLBACK_SUPABASE_PUBLISHABLE_KEY =
   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVsYm11c29kd3lqamljbmdpbmF0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njg5NTk5MjksImV4cCI6MjA4NDUzNTkyOX0.rNk1jPePfro_IGQ3u2I_48bgDC1wSwYivTDkl3N-5Ww";
 
 const normalizeEnvValue = (value: string | undefined): string => {
@@ -19,32 +21,76 @@ const isValidAbsoluteHttpUrl = (value: string): boolean => {
   }
 };
 
+const parseTransportMode = (value: string | undefined): SupabaseTransportMode | null => {
+  const normalized = normalizeEnvValue(value).toLowerCase();
+  if (normalized === 'proxy' || normalized === 'direct' || normalized === 'auto') {
+    return normalized;
+  }
+  return null;
+};
+
 const envUrl = normalizeEnvValue(import.meta.env.VITE_SUPABASE_URL);
 const envKey = normalizeEnvValue(import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY);
+const envTransport = parseTransportMode(import.meta.env.VITE_SUPABASE_TRANSPORT);
 
-const ABSOLUTE_SUPABASE_URL = isValidAbsoluteHttpUrl(envUrl) ? envUrl : FALLBACK_SUPABASE_URL;
+const isDev = import.meta.env.DEV;
+const hasValidEnvUrl = isValidAbsoluteHttpUrl(envUrl);
+const hasEnvKey = envKey.length > 0;
+
+if (!isDev && (!hasValidEnvUrl || !hasEnvKey)) {
+  throw new Error(
+    "[supabase] Production configuration is invalid. Set VITE_SUPABASE_URL and VITE_SUPABASE_PUBLISHABLE_KEY."
+  );
+}
+
+const ABSOLUTE_SUPABASE_URL = hasValidEnvUrl ? envUrl : DEV_FALLBACK_SUPABASE_URL;
 const DEV_PROXY_SUPABASE_URL =
   typeof window !== "undefined"
     ? `${window.location.origin}/supabase`
     : "http://127.0.0.1:4173/supabase";
-const SUPABASE_URL = import.meta.env.DEV ? DEV_PROXY_SUPABASE_URL : ABSOLUTE_SUPABASE_URL;
-const SUPABASE_PUBLISHABLE_KEY = envKey || FALLBACK_SUPABASE_PUBLISHABLE_KEY;
 
-if (!isValidAbsoluteHttpUrl(envUrl) || !envKey) {
+const configuredTransportMode: SupabaseTransportMode = envTransport ?? (isDev ? 'auto' : 'direct');
+const effectiveTransportMode: 'proxy' | 'direct' =
+  !isDev ? 'direct' : configuredTransportMode === 'direct' ? 'direct' : 'proxy';
+
+const SUPABASE_URL = effectiveTransportMode === 'proxy' ? DEV_PROXY_SUPABASE_URL : ABSOLUTE_SUPABASE_URL;
+const SUPABASE_PUBLISHABLE_KEY = hasEnvKey ? envKey : DEV_FALLBACK_SUPABASE_PUBLISHABLE_KEY;
+
+if ((!hasValidEnvUrl || !hasEnvKey) && isDev) {
   console.warn(
-    "[supabase] Invalid or missing Supabase env config. Using built-in fallback values."
+    "[supabase] Invalid or missing Supabase env config in development. Using built-in fallback values."
   );
 }
 
+if (!envTransport && isDev) {
+  console.info("[supabase] VITE_SUPABASE_TRANSPORT not set. Using dev default: auto");
+}
+
+export const supabaseTransportConfigured = configuredTransportMode;
+export const supabaseTransportEffective = effectiveTransportMode;
+export const canFallbackToDirectAuth = isDev && configuredTransportMode === 'auto' && effectiveTransportMode === 'proxy';
+
 // Import the supabase client like this:
 // import { supabase } from "@/integrations/supabase/client";
-
 export const supabase = createClient<Database>(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
   auth: {
     storage: localStorage,
     persistSession: true,
     autoRefreshToken: true,
+    detectSessionInUrl: true,
+    flowType: 'pkce',
   }
 });
 
-export const resolvedSupabaseUrl = import.meta.env.DEV ? DEV_PROXY_SUPABASE_URL : ABSOLUTE_SUPABASE_URL;
+export const directSupabase = createClient<Database>(ABSOLUTE_SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
+  auth: {
+    storage: localStorage,
+    persistSession: true,
+    autoRefreshToken: true,
+    detectSessionInUrl: true,
+    flowType: 'pkce',
+  }
+});
+
+export const resolvedSupabaseUrl = SUPABASE_URL;
+export const resolvedDirectSupabaseUrl = ABSOLUTE_SUPABASE_URL;

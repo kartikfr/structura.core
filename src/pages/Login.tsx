@@ -49,13 +49,21 @@ export const Login = () => {
     const { error } = await signIn(email, password);
 
     if (error) {
-      if (error.message.includes('Invalid login credentials')) {
+      if (error.message.includes('Invalid email or password') || error.message.includes('Invalid login credentials')) {
         toast.error('Invalid credentials', {
           description: 'Please check your email and password.',
         });
-      } else if (error.message.includes('Email not confirmed')) {
+      } else if (error.message.includes('Email not confirmed') || error.message.includes('Email not verified')) {
         toast.error('Email not verified', {
           description: 'Please check your inbox and click the confirmation link before signing in.',
+        });
+      } else if (error.message.includes('Local network/proxy interference')) {
+        toast.error('Connection issue detected', {
+          description: error.message,
+        });
+      } else if (error.message.includes('Auth service temporarily unavailable')) {
+        toast.error('Auth service unavailable', {
+          description: error.message,
         });
       } else {
         toast.error('Login failed', {
