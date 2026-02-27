@@ -1,0 +1,16 @@
+project_id = "ulbmusodwyjjicnginat"
+
+[functions.get-wallet-addresses]
+verify_jwt = true
+
+[functions.submit-payment]
+verify_jwt = true
+
+[functions.verify-payment]
+verify_jwt = true
+
+[functions.auto-verify-payment]
+verify_jwt = true
+
+[functions.fetch-twelvedata]
+verify_jwt = true
