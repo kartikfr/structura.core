@@ -22,7 +22,12 @@ const isValidAbsoluteHttpUrl = (value: string): boolean => {
 const envUrl = normalizeEnvValue(import.meta.env.VITE_SUPABASE_URL);
 const envKey = normalizeEnvValue(import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY);
 
-const SUPABASE_URL = isValidAbsoluteHttpUrl(envUrl) ? envUrl : FALLBACK_SUPABASE_URL;
+const ABSOLUTE_SUPABASE_URL = isValidAbsoluteHttpUrl(envUrl) ? envUrl : FALLBACK_SUPABASE_URL;
+const DEV_PROXY_SUPABASE_URL =
+  typeof window !== "undefined"
+    ? `${window.location.origin}/supabase`
+    : "http://127.0.0.1:4173/supabase";
+const SUPABASE_URL = import.meta.env.DEV ? DEV_PROXY_SUPABASE_URL : ABSOLUTE_SUPABASE_URL;
 const SUPABASE_PUBLISHABLE_KEY = envKey || FALLBACK_SUPABASE_PUBLISHABLE_KEY;
 
 if (!isValidAbsoluteHttpUrl(envUrl) || !envKey) {
@@ -42,4 +47,4 @@ export const supabase = createClient<Database>(SUPABASE_URL, SUPABASE_PUBLISHABL
   }
 });
 
-export const resolvedSupabaseUrl = SUPABASE_URL;
+export const resolvedSupabaseUrl = import.meta.env.DEV ? DEV_PROXY_SUPABASE_URL : ABSOLUTE_SUPABASE_URL;
