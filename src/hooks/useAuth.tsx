@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
 import { User, Session } from '@supabase/supabase-js';
-import { supabase } from '@/integrations/supabase/client';
+import { resolvedSupabaseUrl, supabase } from '@/integrations/supabase/client';
 
 interface Profile {
   id: string;
@@ -126,12 +126,26 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const signInWithGoogle = async () => {
     const redirectUrl = `${window.location.origin}/lens`;
 
-    const { error } = await supabase.auth.signInWithOAuth({
+    const { data, error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
       options: {
-        redirectTo: redirectUrl
+        redirectTo: redirectUrl,
+        skipBrowserRedirect: true,
       }
     });
+
+    if (!error) {
+      const oauthUrl = data?.url;
+      if (!oauthUrl) {
+        return { error: new Error('Google OAuth URL not returned') };
+      }
+
+      const finalUrl = oauthUrl.startsWith('/')
+        ? `${resolvedSupabaseUrl}${oauthUrl}`
+        : oauthUrl;
+
+      window.location.assign(finalUrl);
+    }
 
     return { error: error as Error | null };
   };
