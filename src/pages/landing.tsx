@@ -8,6 +8,7 @@ import { StructuraLogo } from '@/components/StructuraLogo';
 import { MarketMetricsDisplay } from '@/components/MarketMetricsDisplay';
 import { InstitutionalStats } from '@/components/InstitutionalStats';
 import { TradingInstruments } from '@/components/TradingInstruments';
+import { useIsMobile } from '@/hooks/use-mobile';
 import { ArrowRight, Lock, Activity, Layers, Grid3X3, Shield, Database, GitBranch, Clock } from 'lucide-react';
 
 const doctrines = [
@@ -72,6 +73,8 @@ const features = [
 ];
 
 export const Landing = () => {
+  const isMobile = useIsMobile();
+
   return (
     <div className="min-h-screen bg-background relative overflow-hidden">
       {/* Floating math symbols background */}
@@ -129,8 +132,7 @@ export const Landing = () => {
             {/* Left - Copy */}
             <div>
               <div className="flex items-center gap-3 sm:gap-4 mb-4 sm:mb-6">
-                <StructuraLogo size="md" animated={true} className="hidden sm:block" />
-                <StructuraLogo size="sm" animated={true} className="sm:hidden" />
+                <StructuraLogo size={isMobile ? 'sm' : 'md'} animated={true} />
                 <div>
                   <h1 className="text-2xl sm:text-3xl md:text-4xl lg:text-5xl font-mono font-bold tracking-tight text-foreground leading-[1.1]">
                     STRUCTURA
@@ -177,8 +179,8 @@ export const Landing = () => {
             </div>
 
             {/* Right - Price Field Visualization */}
-            <div className="hidden lg:block">
-              <div className="structura-panel overflow-hidden" style={{ height: '420px' }}>
+            <div>
+              <div className="structura-panel overflow-hidden h-[280px] sm:h-[320px] lg:h-[420px]">
                 <div className="px-4 py-2 border-b border-border flex items-center justify-between">
                   <span className="font-mono text-[9px] uppercase tracking-widest text-muted-foreground">
                     Price Field · Structure Visualization
@@ -195,23 +197,6 @@ export const Landing = () => {
         </div>
       </section>
 
-      {/* Mobile Price Field */}
-      <section className="relative z-10 px-6 pb-8 lg:hidden">
-        <div className="container mx-auto">
-          <div className="structura-panel overflow-hidden" style={{ height: '280px' }}>
-            <div className="px-4 py-2 border-b border-border flex items-center justify-between">
-              <span className="font-mono text-[9px] uppercase tracking-widest text-muted-foreground">
-                Price Field · Structure
-              </span>
-              <div className="flex items-center gap-1.5">
-                <span className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse"></span>
-                <span className="font-mono text-[9px] text-primary">LIVE</span>
-              </div>
-            </div>
-            <PriceFieldVisual />
-          </div>
-        </div>
-      </section>
 
       {/* Live Metrics Grid */}
       <section className="relative z-10 py-10 px-6 border-y border-border bg-card/30">
@@ -270,17 +255,10 @@ export const Landing = () => {
             </div>
 
             {/* Right - Trading Instruments Feed */}
-            <div className="hidden lg:block">
+            <div>
               <TradingInstruments />
             </div>
           </div>
-        </div>
-      </section>
-
-      {/* Mobile Trading Instruments */}
-      <section className="relative z-10 py-8 px-6 lg:hidden border-t border-border">
-        <div className="container mx-auto">
-          <TradingInstruments />
         </div>
       </section>
 
@@ -399,8 +377,7 @@ export const Landing = () => {
       {/* CTA Section */}
       <section className="relative z-10 py-12 sm:py-20 px-3 sm:px-6">
         <div className="container mx-auto max-w-2xl text-center">
-          <StructuraLogo size="md" animated={true} className="mx-auto mb-4 sm:mb-6 sm:hidden" />
-          <StructuraLogo size="lg" animated={true} className="mx-auto mb-4 sm:mb-6 hidden sm:block" />
+          <StructuraLogo size={isMobile ? 'md' : 'lg'} animated={true} className="mx-auto mb-4 sm:mb-6" />
           <h3 className="text-lg sm:text-xl md:text-2xl font-mono font-bold text-foreground mb-2 sm:mb-3">
             Start Studying Market Structure
           </h3>

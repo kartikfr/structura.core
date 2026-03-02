@@ -32,6 +32,7 @@ export const StructuraLogo = ({ size = 'md', animated = true, className = '' }: 
     ctx.scale(dpr, dpr);
 
     let time = 0;
+    let animationId: number | null = null;
     const centerX = dim / 2;
     const centerY = dim / 2;
     const phi = 1.618033988749895; // Golden ratio
@@ -113,12 +114,16 @@ export const StructuraLogo = ({ size = 'md', animated = true, className = '' }: 
       ctx.stroke();
 
       time++;
-      requestAnimationFrame(animate);
+      animationId = requestAnimationFrame(animate);
     };
 
-    const animationId = requestAnimationFrame(animate);
+    animationId = requestAnimationFrame(animate);
 
-    return () => cancelAnimationFrame(animationId);
+    return () => {
+      if (animationId !== null) {
+        cancelAnimationFrame(animationId);
+      }
+    };
   }, [dim, animated]);
 
   if (!animated) {

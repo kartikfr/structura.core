@@ -14,40 +14,39 @@ export const PriceFieldVisual = ({ className = '' }: PriceFieldVisualProps) => {
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    let width: number;
-    let height: number;
+    let width = 0;
+    let height = 0;
 
-    const resize = () => {
-      const rect = canvas.getBoundingClientRect();
+    const updateCanvasSize = (nextWidth: number, nextHeight: number) => {
+      width = Math.max(1, Math.floor(nextWidth));
+      height = Math.max(1, Math.floor(nextHeight));
+
       const dpr = window.devicePixelRatio || 1;
-      canvas.width = rect.width * dpr;
-      canvas.height = rect.height * dpr;
-      ctx.scale(dpr, dpr);
-      width = rect.width;
-      height = rect.height;
+      canvas.width = Math.max(1, Math.floor(width * dpr));
+      canvas.height = Math.max(1, Math.floor(height * dpr));
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     };
-    resize();
-    window.addEventListener('resize', resize);
+
+    let rafId: number | null = null;
+
+    const resizeObserver = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      if (!entry) return;
+      updateCanvasSize(entry.contentRect.width, entry.contentRect.height);
+    });
+    resizeObserver.observe(canvas);
 
     // Price field simulation with enhanced detail
     let time = 0;
 
-    // Fibonacci levels with labels
-    const fibLevels = [
+    // Fibonacci level templates
+    const fibLevelTemplates = [
       { ratio: 0.236, label: '23.6%', type: 'minor' },
       { ratio: 0.382, label: '38.2%', type: 'major' },
       { ratio: 0.5, label: '50.0%', type: 'mid' },
       { ratio: 0.618, label: '61.8%', type: 'major' },
       { ratio: 0.786, label: '78.6%', type: 'minor' },
-    ].map(l => ({
-      ...l,
-      y: height * (0.08 + l.ratio * 0.84),
-      strength: l.type === 'major' ? 1 : l.type === 'mid' ? 0.8 : 0.5,
-    }));
-
-    // VWAP and POC simulation
-    const vwapY = height * 0.52;
-    const pocY = height * 0.48;
+    ];
 
     // Price particles with enhanced properties
     interface Particle {
@@ -65,7 +64,7 @@ export const PriceFieldVisual = ({ className = '' }: PriceFieldVisualProps) => {
 
     // Volume profile bars (left side)
     const volumeBars = Array.from({ length: 20 }, (_, i) => ({
-      y: height * (0.1 + (i / 20) * 0.8),
+      yRatio: 0.1 + (i / 20) * 0.8,
       width: Math.random() * 40 + 10,
       intensity: Math.random(),
     }));
@@ -75,16 +74,31 @@ export const PriceFieldVisual = ({ className = '' }: PriceFieldVisualProps) => {
     const maxHistory = 150;
 
     const animate = () => {
+      if (!width || !height) {
+        rafId = requestAnimationFrame(animate);
+        return;
+      }
+
+      const fibLevels = fibLevelTemplates.map((l) => ({
+        ...l,
+        y: height * (0.08 + l.ratio * 0.84),
+        strength: l.type === 'major' ? 1 : l.type === 'mid' ? 0.8 : 0.5,
+      }));
+
+      const vwapY = height * 0.52;
+      const pocY = height * 0.48;
+
       // Fade effect with slight blur feel
       ctx.fillStyle = 'hsla(220, 15%, 8%, 0.12)';
       ctx.fillRect(0, 0, width, height);
 
       // Draw volume profile on left (subtle)
       volumeBars.forEach((bar, i) => {
+        const barY = height * bar.yRatio;
         const wave = Math.sin(time * 0.002 + i * 0.3) * 5;
         const alpha = 0.05 + bar.intensity * 0.08;
         ctx.fillStyle = `hsla(168, 30%, 40%, ${alpha})`;
-        ctx.fillRect(0, bar.y - 8, bar.width + wave, 12);
+        ctx.fillRect(0, barY - 8, bar.width + wave, 12);
       });
 
       // Draw structure levels with enhanced visuals
@@ -228,7 +242,6 @@ export const PriceFieldVisual = ({ className = '' }: PriceFieldVisualProps) => {
 
         for (let i = 1; i < priceHistory.length; i++) {
           const point = priceHistory[i];
-          const xOffset = (maxHistory - priceHistory.length + i) * 2;
           ctx.lineTo(currentX - (priceHistory.length - i) * 2, point.y);
         }
 
@@ -307,14 +320,16 @@ export const PriceFieldVisual = ({ className = '' }: PriceFieldVisualProps) => {
       }
 
       time++;
-      requestAnimationFrame(animate);
+      rafId = requestAnimationFrame(animate);
     };
 
-    const animationId = requestAnimationFrame(animate);
+    rafId = requestAnimationFrame(animate);
 
     return () => {
-      window.removeEventListener('resize', resize);
-      cancelAnimationFrame(animationId);
+      resizeObserver.disconnect();
+      if (rafId !== null) {
+        cancelAnimationFrame(rafId);
+      }
     };
   }, []);
 
