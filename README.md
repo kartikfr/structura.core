@@ -46,6 +46,20 @@ This project is built with a modern, performance-oriented stack:
     VITE_SUPABASE_PUBLISHABLE_KEY="your_supabase_key"
     ```
 
+### Vercel Production Environment
+
+For production builds, the app requires:
+
+```env
+VITE_SUPABASE_PROJECT_ID="ulbmusodwyjjicnginat"
+VITE_SUPABASE_URL="https://ulbmusodwyjjicnginat.supabase.co"
+VITE_SUPABASE_PUBLISHABLE_KEY="<supabase_anon_publishable_key>"
+VITE_SUPABASE_TRANSPORT="direct"
+```
+
+This repository includes these values in `.env.production` so Vercel can build successfully without extra setup.
+If you prefer dashboard-managed vars, add the same keys in Vercel Project Settings -> Environment Variables.
+
 4.  **Start Development Server:**
     ```sh
     npm run dev
